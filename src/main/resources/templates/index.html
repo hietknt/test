@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Tutorial: Hello Dojo!</title>
+
+    <style>
+        body{
+            width: 100%;
+            height: 900px;
+        }
+        .gridx {
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+
+    <!-- configure Dojo -->
+    <script>
+        var dojoConfig = {
+            async: true,
+            parseOnLoad: true,
+            packages: [{
+                name: "modules",
+                location: location.pathname.replace(/\/[^/]*$/, '') + '/modules'
+            }]
+        };
+    </script>
+    <link rel="stylesheet" href="http://ajax.googleapis.com/ajax/libs/dojo/1.14.1/dijit/themes/claro/claro.css" />
+    <link rel="stylesheet" type="text/css" href="http://cdn.rawgit.com/oria/gridx/1.3/resources/claro/Gridx.css">
+    <script src="http://ajax.googleapis.com/ajax/libs/dojo/1.14.1/dojo/dojo.js"></script>
+
+    <!-------------------------------------------------------------------------------------->
+    <!-- SOME CUSTOM SCRIPTS -->
+    <script>
+        require([
+            "dojo/request",
+            "dojo/dom", "dojo/json", "dojo/store/Memory",
+            "dijit/layout/TabContainer", "dijit/layout/ContentPane",
+            "dijit/tree/ObjectStoreModel", "dijit/Tree", "dojo/domReady!"
+        ],
+        function(request, dom, json, Memory, TabContainer, ContentPane, ObjectStoreModel, Tree){
+            // TabContainer with initial main TAB
+            var tabContainer = new TabContainer({
+                style: "height: 100%; width: 100%;",
+                region: "center"
+            }, "right-panel");
+            var mainTab = new ContentPane({
+                title: "Main",
+                content: "Some context in MIAN"
+            });
+            tabContainer.addChild(mainTab);
+            tabContainer.startup();
+
+            // Tree-List with onClick event that adding new TAB
+            var jsonData = "{\n" +
+                "  \"name\": \"root\",\n" +
+                "  \"id\": \"root\",\n" +
+                "  \"children\": [\n" +
+                "    {\n" +
+                "      \"name\": \"Справочник организации\",\n" +
+                "      \"id\": \"directory\",\n" +
+                "      \"children\": [\n" +
+                "        {\n" +
+                "          \"name\": \"Оргструктура\",\n" +
+                "          \"id\": \"organizationStructure\",\n" +
+                "          \"apiUrl\": \"\",\n" +
+                "          \"children\": []\n" +
+                "        },\n" +
+                "        {\n" +
+                "          \"name\": \"Все сотрудники\",\n" +
+                "          \"id\": \"employees\",\n" +
+                "          \"apiUrl\": \"\",\n" +
+                "          \"children\": []\n" +
+                "        }\n" +
+                "      ]\n" +
+                "    },\n" +
+                "    {\n" +
+                "      \"name\": \"Поручения\",\n" +
+                "      \"id\": \"missions\",\n" +
+                "      \"children\": [\n" +
+                "        {\n" +
+                "          \"name\": \"Все поручения\",\n" +
+                "          \"id\": \"missionsList\",\n" +
+                "          \"apiUrl\": \"http://localhost:8080/test2-1.0-SNAPSHOT/api/missions\",\n" +
+                "          \"children\": []\n" +
+                "        },\n" +
+                "        {\n" +
+                "          \"name\": \"Мои поручения\",\n" +
+                "          \"id\": \"missionsByMe\",\n" +
+                "          \"apiUrl\": \"http://localhost:8080/test2-1.0-SNAPSHOT/api/missions/byme/2\",\n" + // 2 is USERID
+                "          \"children\": []\n" +
+                "        },\n" +
+                "        {\n" +
+                "          \"name\": \"Поручения мне\",\n" +
+                "          \"id\": \"missionsToMe\",\n" +
+                "          \"apiUrl\": \"http://localhost:8080/test2-1.0-SNAPSHOT/api/missions/tome/2\",\n" + // 2 is USERID
+                "          \"children\": []\n" +
+                "        }\n" +
+                "      ]\n" +
+                "    }\n" +
+                "  ]\n" +
+                "}"
+            var store = new Memory({
+                data: [ json.parse(jsonData) ],
+                getChildren: function(object){
+                    return object.children || [];
+                }
+            });
+
+            var model = new ObjectStoreModel({
+                store: store,
+                query: {id: 'root'},
+                mayHaveChildren: function(item){
+                    return "children" in item;
+                }
+            });
+
+            var tree = new Tree({
+                model: model,
+                onOpenClick: true,
+                onDblClick: function(item){
+                    if (item.children.length == 0) {
+                        request.get(item.apiUrl).then(function(json){
+                            var gridContainerId = "gridContainer" + item.id;
+                            var buttonId = "button" + item.id;
+
+                            if (dom.byId(gridContainerId) == null) {
+                                var jsonArray = JSON.parse(json);
+
+                                var tab = new ContentPane({
+                                    title: item.name,
+                                    content: "<div id=\"" + gridContainerId + "\" style=\"width:100%; height:95%;\"></div>" +
+                                        "<button id=\"" + buttonId + "\" type=\"button\"></button>",
+                                    closable: true
+                                });
+                                tabContainer.addChild(tab);
+                                tabContainer.selectChild(tab);
+
+                                createGrid(jsonArray, gridContainerId, tabContainer);
+                                createAddButton(buttonId, tabContainer);
+                            }else{
+                                for (var i = 0; i < tabContainer.getChildren().length; i++) {
+                                    var tempTab = tabContainer.getChildren()[i];
+                                    if (tempTab.title.localeCompare(item.name) == 0) {
+                                        tabContainer.selectChild(tempTab);
+                                    }
+                                }
+                            }
+                        });
+                    }
+                }
+            }, "tree-list");
+
+            tree.startup();
+        });
+
+        function createGrid(data, gridId, tabContainer){
+            require({
+                packages: [
+                    {
+                        name: 'gridx',
+                        location: 'https://cdn.rawgit.com/oria/gridx/1.3'
+                    }
+                ]
+            },[
+                "gridx/Grid",
+                "gridx/core/model/cache/Sync",
+                "gridx/modules/VirtualVScroller",
+                "gridx/modules/ColumnResizer",
+                "gridx/modules/extendedSelect/Row",
+                "gridx/modules/SingleSort",
+                "gridx/modules/Filter",
+                "gridx/modules/Pagination",
+                "gridx/modules/filter/FilterBar",
+                "gridx/modules/Bar",
+                "gridx/modules/pagination/PaginationBar",
+                "gridx/modules/CellWidget",
+                "dojo/store/Memory",
+                "dojo/dom", "dijit/layout/TabContainer", "dijit/layout/ContentPane",
+                "dojo/domReady!"
+
+            ], function(Grid, Cache, VirtualVScroller,
+                        ColumnResizer, SelectRow,
+                        SingleSort, Filter, Pagination,
+                        FilterBar, Bar, PaginationBar,
+                        CellWidget, Memory, dom, TabContainer,
+                        ContentPane){
+
+                var store = new Memory({
+                    data: data
+                });
+
+                var grid = new Grid({
+                    modules: [
+                        VirtualVScroller, ColumnResizer,
+                        SelectRow, SingleSort,
+                        Filter, Pagination,
+                        FilterBar, Bar, PaginationBar,
+                        CellWidget
+                    ],
+                    style: "height: 100%; width: 100%;",
+                    store: store,
+                    cacheClass: Cache,
+                    structure: [
+                        { id: "column_1", field: "title", name: "Title",
+                            widgetsInCell: true,
+                            decorator: function(){
+                                return "<div button data-dojo-type='dijit.form.Button' data-dojo-attach-point='link'></div>";
+                            },
+                            setCellValue: function(data){
+                                this.link.set('label', data);
+                                var missionId = this.cell.row.id;
+                                if(this.link._cnnt){
+                                    this.link._cnnt.remove();
+                                }
+                                this.link._cnnt = dojo.connect(this.link, 'onClick', function(e){
+                                    var viewContainerId = "viewContainer" + missionId;
+                                    var tabTitle = data;
+                                    if (dom.byId(viewContainerId) == null) {
+                                        var tab = new ContentPane({
+                                            title: tabTitle,
+                                            content: "<div id=\"" + viewContainerId + "\"></div>",
+                                            closable: true
+                                        });
+                                        tabContainer.addChild(tab);
+                                        addViewForm(missionId, viewContainerId, tabContainer, tab);
+
+                                        tabContainer.selectChild(tab);
+                                    }else{
+                                        for (var i = 0; i < tabContainer.getChildren().length; i++) {
+                                            var tempTab = tabContainer.getChildren()[i];
+                                            if (tempTab.title.localeCompare(tabTitle) == 0) {
+                                                tabContainer.selectChild(tempTab);
+                                            }
+                                        }
+                                    }
+                                });
+                            }
+                        },
+                        { id: "column_3", field: "limitDateTime", name: "LimitDate" },
+                        { id: "column_4", field: "controlAttribute", name: "ControlAttribute" },
+                        { id: "column_5", field: "executeAttribute", name: "ExecuteAttribute" },
+                    ]
+                });
+
+                grid.placeAt(gridId);
+                grid.startup();
+            });
+        }
+
+        function createAddButton(buttonId, tabContainer){
+            require(["dijit/form/Button", "dojo/dom","dijit/layout/TabContainer",
+                    "dijit/layout/ContentPane", "dojo/domReady!"],
+                function(Button, dom, TabContainer, ContentPane){
+                    // Create a button programmatically:
+                    var myButton = new Button({
+                        style: "margin-top: 10px;",
+                        label: "Добавить новое поручение",
+                        onClick: function(){
+                            var addContainerId = "addContainer";
+                            var tabTitle = "Добавить новое поручение";
+
+                            if (dom.byId(addContainerId) == null) {
+                                var tab = new ContentPane({
+                                    title: tabTitle,
+                                    content: "<div id=\"" + addContainerId + "\"></div>",
+                                    closable: true
+                                });
+                                tabContainer.addChild(tab);
+                                addCreateForm(addContainerId);
+
+                                tabContainer.selectChild(tab);
+                            }else{
+                                for (var i = 0; i < tabContainer.getChildren().length; i++) {
+                                    var tempTab = tabContainer.getChildren()[i];
+                                    if (tempTab.title.localeCompare(tabTitle) == 0) {
+                                        tabContainer.selectChild(tempTab);
+                                    }
+                                }
+                            }
+
+                        }
+                    }, buttonId);
+                });
+        }
+
+        function addCreateForm(containerId) {
+            require([
+                    "dojo/_base/declare",
+                    "dojo/_base/window",
+                    "dojo/dom-construct",
+                    "dojo/dom",
+                    "dijit/form/Form",
+                    "dijit/form/Textarea",
+                    "dijit/form/Button",
+                    "dijit/form/ValidationTextBox",
+                    "dijit/form/DateTextBox",
+                    "dijit/form/Select",
+                    "dijit/form/MultiSelect",
+                    "dojo/request",
+                    "dojo/json"
+                ],
+                function (declare, win, domConstruct, dom, Form,
+                          TextArea, Button, ValidationTextBox,
+                          DateTextBox, Select, MultiSelect,
+                          request, json) {
+                    request.get("http://localhost:8080/test2-1.0-SNAPSHOT/api/additional/employee").then(function(employeeJson) {
+                        var employeeArray = JSON.parse(employeeJson);
+
+                        var form = new Form({
+                            style: "padding: 10px;",
+
+                            titleTextBox: new ValidationTextBox({
+                                style: "width: 30%",
+                                regExp: "[а-яА-Я0-9 .,\-]{2,32}",
+                                invalidMessage: "Некорректный символ или длина не в пределе(2-32)"
+                            }),
+
+                            controlAttribute: new ValidationTextBox({
+                                style: "width: 30%",
+                                regExp: "[а-яА-Я0-9 .,\-]{2,32}",
+                                invalidMessage: "Incorrect symbol or length not in range(2-32)"
+                            }),
+
+                            executionAttribute: new ValidationTextBox({
+                                style: "width: 30%",
+                                regExp: "[а-яА-Я0-9 .,\-]{2,32}",
+                                invalidMessage: "Incorrect symbol or length not in range(2-32)"
+                            }),
+
+                            text: new TextArea({
+                                style: "width: 30%",
+                                regExp: "[а-яА-Я0-9 .,\-]{2,256}",
+                                invalidMessage: "Incorrect symbol or length not in range(2-256)"
+                            }),
+
+                            executionPeriod: new DateTextBox({}),
+
+                            author: new Select({
+                                name: "author"
+                            }),
+
+                            employees: new MultiSelect({}),
+
+                            submitButton: new Button({
+                                label: "Добавить",
+                                onClick: function () {
+                                    // VALIDATION
+                                    if (form.titleTextBox.get('value').length != 0
+                                        && form.controlAttribute.get('value').length != 0
+                                        && form.executionAttribute.get('value').length != 0
+                                        && form.text.get('value').length != 0
+                                        && form.author.get('value').length != 0
+                                        && form.executionPeriod.get('value') != null
+                                        && form.employees.get('value').length != 0) {
+                                        if (form.titleTextBox.isValid()
+                                            && form.controlAttribute.isValid()
+                                            && form.executionAttribute.isValid()
+                                            && form.author.isValid()
+                                            && form.executionPeriod.isValid()) {
+
+                                            //
+                                            request.post("http://localhost:8080/test2-1.0-SNAPSHOT/api/missions",{
+                                                data: {
+                                                    title: form.titleTextBox.get('value'),
+                                                    executionPeriod: form.executionPeriod.get('displayedValue'),
+                                                    controlAttribute: form.controlAttribute.get('value'),
+                                                    executionAttribute: form.executionAttribute.get('value'),
+                                                    text: form.text.get('value'),
+                                                    employees: form.employees.get('value'),
+                                                    author: form.author.get('value')
+                                                }
+                                            }).then(function(response){
+                                                if (json.parse(response).code == 200){
+                                                    alert("Поручение успешно добавлено");
+                                                }else {
+                                                    alert("Ошибка");
+                                                }
+                                            });
+                                        }
+                                    } else {
+                                        alert("Все поля должны быть заполнены");
+                                    }
+                                }
+                            }),
+
+                            postCreate: function () {
+                                this.domNode.appendChild(domConstruct.toDom("<label>Название:</label>"));
+                                this.domNode.appendChild(this.titleTextBox.domNode);
+                                this.domNode.appendChild(domConstruct.toDom("<br>"));
+
+                                this.domNode.appendChild(domConstruct.toDom("<label>Атрибут контроля:</label>"));
+                                this.domNode.appendChild(this.controlAttribute.domNode);
+                                this.domNode.appendChild(domConstruct.toDom("<br>"));
+
+                                this.domNode.appendChild(domConstruct.toDom("<label>Атрибут выполнения:</label>"));
+                                this.domNode.appendChild(this.executionAttribute.domNode);
+                                this.domNode.appendChild(domConstruct.toDom("<br>"));
+
+                                this.domNode.appendChild(domConstruct.toDom("<label>Текст:</label>"));
+                                this.domNode.appendChild(this.text.domNode);
+                                this.domNode.appendChild(domConstruct.toDom("<br>"));
+
+                                this.domNode.appendChild(domConstruct.toDom("<label>Автор поручения:</label>"));
+                                this.domNode.appendChild(this.author.domNode);
+                                this.domNode.appendChild(domConstruct.toDom("<br>"));
+
+                                this.domNode.appendChild(domConstruct.toDom("<label>Срок исполнения:</label>"));
+                                this.domNode.appendChild(this.executionPeriod.domNode);
+                                this.domNode.appendChild(domConstruct.toDom("<br>"));
+
+                                this.domNode.appendChild(domConstruct.toDom("<label>Исполнители:</label>"));
+                                this.domNode.appendChild(domConstruct.toDom("<div id=\"createFormMultiSelect\"></div>"));
+                                var sel = dom.byId('createFormMultiSelect');
+                                var n = 0;
+                                employeeArrayData = employeeArray; // JSON DATA CASTED TO ARRAY
+                                options = [];
+                                for (var i in employeeArrayData) {
+                                    var c = win.doc.createElement('option');
+                                    EmployeeName = employeeArrayData[i].secondname + " " + employeeArrayData[i].firstname + " " + employeeArrayData[i].middlename;
+                                    c.innerHTML = EmployeeName;
+                                    c.value = employeeArrayData[i].id;
+                                    options.push({label:EmployeeName, value:employeeArrayData[i].id})
+                                    sel.appendChild(c);
+                                }
+                                this.author.options = options;
+                                this.employees = new MultiSelect({name: 'createFormMultiSelect'}, sel);
+                                this.domNode.appendChild(domConstruct.toDom("<br>"));
+
+                                this.domNode.appendChild(this.submitButton.domNode);
+                            }
+                        }, containerId);
+                    });
+                }
+            );
+        }
+
+        function addEditForm(containerId, missionArray) {
+            require([
+                    "dojo/_base/declare",
+                    "dojo/_base/window",
+                    "dojo/dom-construct",
+                    "dojo/dom",
+                    "dijit/form/Form",
+                    "dijit/form/Textarea",
+                    "dijit/form/Button",
+                    "dijit/form/ValidationTextBox",
+                    "dijit/form/DateTextBox",
+                    "dijit/form/Select",
+                    "dijit/form/MultiSelect",
+                    "dojo/request",
+                    "dojo/json"
+                ],
+                function (declare, win, domConstruct, dom, Form,
+                          TextArea, Button, ValidationTextBox,
+                          DateTextBox, Select, MultiSelect,
+                          request, json) {
+                        var form = new Form({
+                            style: "padding: 10px;",
+
+                            titleTextBox: new ValidationTextBox({
+                                style: "width: 30%",
+                                regExp: "[а-яА-Я0-9 .,\-]{2,32}",
+                                invalidMessage: "Некорректный символ или длина не в пределе(2-32)",
+                                value: missionArray.title
+                            }),
+
+                            controlAttribute: new ValidationTextBox({
+                                style: "width: 30%",
+                                regExp: "[а-яА-Я0-9 .,\-]{2,32}",
+                                invalidMessage: "Incorrect symbol or length not in range(2-32)",
+                                value: missionArray.controlAttribute
+                            }),
+
+                            executionAttribute: new ValidationTextBox({
+                                style: "width: 30%",
+                                regExp: "[а-яА-Я0-9 .,\-]{2,32}",
+                                invalidMessage: "Incorrect symbol or length not in range(2-32)",
+                                value: missionArray.executeAttribute
+                            }),
+
+                            text: new TextArea({
+                                style: "width: 30%",
+                                regExp: "[а-яА-Я0-9 .,\-]{2,256}",
+                                invalidMessage: "Incorrect symbol or length not in range(2-256)",
+                                value: missionArray.text
+                            }),
+
+                            executionPeriod: new DateTextBox({
+                                value: missionArray.limitDateTime
+                            }),
+
+                            author: new Select({
+                                name: "author",
+                                value: missionArray.author.secondname + " " + missionArray.author.firstname + " " +missionArray.author.middlename
+                            }),
+
+                            employees: new MultiSelect({}),
+
+                            submitButton: new Button({
+                                label: "Изменить",
+                                onClick: function () {
+                                    // VALIDATION
+                                    if (form.titleTextBox.get('value').length != 0
+                                        && form.controlAttribute.get('value').length != 0
+                                        && form.executionAttribute.get('value').length != 0
+                                        && form.text.get('value').length != 0
+                                        && form.author.get('value').length != 0
+                                        && form.executionPeriod.get('value') != null
+                                        && form.employees.get('value').length != 0) {
+                                        if (form.titleTextBox.isValid()
+                                            && form.controlAttribute.isValid()
+                                            && form.executionAttribute.isValid()
+                                            && form.author.isValid()
+                                            && form.executionPeriod.isValid()) {
+
+                                            // EDIT
+                                        }
+                                    } else {
+                                        alert("Все поля должны быть заполнены");
+                                    }
+                                }
+                            }),
+
+                            postCreate: function () {
+                                this.domNode.appendChild(domConstruct.toDom("<label>Название:</label>"));
+                                this.domNode.appendChild(this.titleTextBox.domNode);
+                                this.domNode.appendChild(domConstruct.toDom("<br>"));
+
+                                this.domNode.appendChild(domConstruct.toDom("<label>Атрибут контроля:</label>"));
+                                this.domNode.appendChild(this.controlAttribute.domNode);
+                                this.domNode.appendChild(domConstruct.toDom("<br>"));
+
+                                this.domNode.appendChild(domConstruct.toDom("<label>Атрибут выполнения:</label>"));
+                                this.domNode.appendChild(this.executionAttribute.domNode);
+                                this.domNode.appendChild(domConstruct.toDom("<br>"));
+
+                                this.domNode.appendChild(domConstruct.toDom("<label>Текст:</label>"));
+                                this.domNode.appendChild(this.text.domNode);
+                                this.domNode.appendChild(domConstruct.toDom("<br>"));
+
+                                this.domNode.appendChild(domConstruct.toDom("<label>Автор поручения:</label>"));
+                                this.domNode.appendChild(this.author.domNode);
+                                this.domNode.appendChild(domConstruct.toDom("<br>"));
+
+                                this.domNode.appendChild(domConstruct.toDom("<label>Срок исполнения:</label>"));
+                                this.domNode.appendChild(this.executionPeriod.domNode);
+                                this.domNode.appendChild(domConstruct.toDom("<br>"));
+
+                                this.domNode.appendChild(domConstruct.toDom("<label>Исполнители:</label>"));
+                                this.domNode.appendChild(domConstruct.toDom("<div id=\"createFormMultiSelect\"></div>"));
+                                var sel = dom.byId('createFormMultiSelect');
+                                var n = 0;
+                                employeeArrayData = missionArray.employee; // JSON DATA CASTED TO ARRAY
+                                options = [];
+                                for (var i in employeeArrayData) {
+                                    var c = win.doc.createElement('option');
+                                    EmployeeName = employeeArrayData[i].secondname + " " + employeeArrayData[i].firstname + " " + employeeArrayData[i].middlename;
+                                    c.innerHTML = EmployeeName;
+                                    c.value = employeeArrayData[i].id;
+                                    options.push({label:EmployeeName, value:employeeArrayData[i].id})
+                                    sel.appendChild(c);
+                                }
+                                this.author.options = options;
+                                this.employees = new MultiSelect({name: 'createFormMultiSelect'}, sel);
+                                this.domNode.appendChild(domConstruct.toDom("<br>"));
+
+                                this.domNode.appendChild(this.submitButton.domNode);
+                            }
+                        }, containerId);
+                }
+            );
+        }
+
+        function addViewForm(missionId, containerId, tabContainer, tab){
+            require( [
+                    "dojo/_base/declare",
+                    "dojo/_base/window",
+                    "dojo/dom-construct",
+                    "dojo/dom",
+                    "dijit/form/Form",
+                    "dijit/form/Textarea",
+                    "dijit/form/Button",
+                    "dijit/form/ValidationTextBox",
+                    "dijit/form/DateTextBox",
+                    "dijit/form/Select",
+                    "dijit/form/MultiSelect",
+                    "dojo/request",
+                    "dojo/json",
+                    "dojo/dom", "dijit/layout/TabContainer", "dijit/layout/ContentPane",
+                ],
+                function(declare, win, domConstruct, dom, Form,
+                         TextArea, Button, ValidationTextBox,
+                         DateTextBox, Select, MultiSelect, request, json,
+                         dom, TabContainer, ContentPane) {
+
+                    request.get("http://localhost:8080/test2-1.0-SNAPSHOT/api/missions/" + missionId).then(function(mission){
+                        missionArray = json.parse(mission);
+                        var form = new Form({
+                            style: "padding: 10px;",
+
+                            titleTextBox: new ValidationTextBox({
+                                style: "width: 30%;",
+                                readonly: 'readonly',
+                                value: missionArray.title
+                            }),
+
+                            controlAttribute: new ValidationTextBox({
+                                style: "width: 30%",
+                                readonly: 'readonly',
+                                value: missionArray.controlAttribute
+                            }),
+
+                            executionAttribute: new ValidationTextBox({
+                                style: "width: 30%",
+                                readonly: 'readonly',
+                                value: missionArray.executeAttribute
+                            }),
+
+                            text: new TextArea({
+                                style: "width: 30%",
+                                readonly: 'readonly',
+                                value: missionArray.text
+                            }),
+
+                            executionPeriod: new ValidationTextBox({
+                                readonly: 'readonly',
+                                value: missionArray.limitDateTime
+                            }),
+
+                            author: new ValidationTextBox({
+                                readonly: 'readonly',
+                                value: missionArray.author.secondname + " " + missionArray.author.firstname + " " + missionArray.author.middlename
+                            }),
+
+                            employees: new MultiSelect({
+                                readonly: 'readonly'
+                            }),
+
+                            editButton: new Button({
+                                label: "Изменить",
+                                onClick: function(){
+                                    var editContainerId = "editContainer" + missionArray.id;
+                                    var tabTitle = "Изменить: \"" + missionArray.title + "\"";
+
+                                    if (dom.byId(editContainerId) == null) {
+                                        var tab = new ContentPane({
+                                            title: tabTitle,
+                                            content: "<div id=\"" + editContainerId + "\"></div>",
+                                            closable: true
+                                        });
+                                        tabContainer.addChild(tab);
+                                        addEditForm(editContainerId, missionArray);
+                                        tabContainer.selectChild(tab);
+                                    }else{
+                                        for (var i = 0; i < tabContainer.getChildren().length; i++) {
+                                            var tempTab = tabContainer.getChildren()[i];
+                                            if (tempTab.title.localeCompare(tabTitle) == 0) {
+                                                tabContainer.selectChild(tempTab);
+                                            }
+                                        }
+                                    }
+
+
+                                }
+                            }),
+
+                            deleteButton: new Button({
+                                label: "Удалить",
+                                onClick: function(){
+                                    removeDialog(missionId, tab);
+                                }
+                            }),
+
+                            postCreate: function() {
+                                var multiSelectId = "viewFormMultiSelect" + missionId;
+                                this.domNode.appendChild(domConstruct.toDom("<label>Название:</label>"));
+                                this.domNode.appendChild(this.titleTextBox.domNode);
+                                this.domNode.appendChild(domConstruct.toDom("<br>"));
+
+                                this.domNode.appendChild(domConstruct.toDom("<label>Атрибут контроля:</label>"));
+                                this.domNode.appendChild(this.controlAttribute.domNode);
+                                this.domNode.appendChild(domConstruct.toDom("<br>"));
+
+                                this.domNode.appendChild(domConstruct.toDom("<label>Атрибут выполнения:</label>"));
+                                this.domNode.appendChild(this.executionAttribute.domNode);
+                                this.domNode.appendChild(domConstruct.toDom("<br>"));
+
+                                this.domNode.appendChild(domConstruct.toDom("<label>Текст:</label>"));
+                                this.domNode.appendChild(this.text.domNode);
+                                this.domNode.appendChild(domConstruct.toDom("<br>"));
+
+                                this.domNode.appendChild(domConstruct.toDom("<label>Автор поручения:</label>"));
+                                this.domNode.appendChild(this.author.domNode);
+                                this.domNode.appendChild(domConstruct.toDom("<br>"));
+
+                                this.domNode.appendChild(domConstruct.toDom("<label>Срок исполнения:</label>"));
+                                this.domNode.appendChild(this.executionPeriod.domNode);
+                                this.domNode.appendChild(domConstruct.toDom("<br>"));
+
+                                this.domNode.appendChild(domConstruct.toDom("<label>Исполнители:</label>"));
+                                this.domNode.appendChild(domConstruct.toDom("<div id=\"" + multiSelectId + "\"></div>"));
+                                var sel = dom.byId(multiSelectId);
+                                var n = 0;
+                                multiSelectData = missionArray.employee;
+                                for(var i in multiSelectData){
+                                    var c = win.doc.createElement('option');
+                                    c.innerHTML = multiSelectData[i].secondname + " " + multiSelectData[i].firstname + " " + multiSelectData[i].middlename;
+                                    c.value = multiSelectData[i].id;
+                                    sel.appendChild(c);
+                                }
+                                this.employees = new MultiSelect({ name: multiSelectId }, sel);
+                                this.domNode.appendChild(domConstruct.toDom("<br>"));
+
+                                this.domNode.appendChild(this.editButton.domNode);
+                                this.domNode.appendChild(this.deleteButton.domNode);
+                            }
+                        }, containerId);
+                    })
+                });
+        }
+
+        function removeDialog(missionId, tab){
+            require([
+                    "dojo/request",
+                    "dijit/Dialog",
+                    "dijit/form/Form",
+                    "dijit/form/TextBox",
+                    "dijit/form/Button",
+                    "dojo/dom-construct",
+                    "dojo/json",
+                    "dojo/domReady!"
+                ],
+                function(request, Dialog, Form, TextBox, Button, domConstruct, json){
+                    var form = new Form({
+                        postCreate: function() {
+                            this.domNode.appendChild(domConstruct.toDom("<p>Вы уверены что хотите удалить данное поручение?</p>"));
+                        }
+                    });
+
+                    new Button({
+                        label: "Да",
+                        onClick: function() {
+                            request.del("http://localhost:8080/test2-1.0-SNAPSHOT/api/missions/" + missionId).then(function (response) {
+                                if (json.parse(response).code == 200){
+                                    alert("Поручение успешно удалено");
+                                    dialog.destroy();
+                                }else {
+                                    alert("Ошибка");
+                                    dialog.destroy();
+                                }
+                            })
+                        }
+                    }).placeAt(form.containerNode);
+
+                    new Button({
+                        label: "Нет",
+                        onClick: function(){
+                            dialog.destroy();
+                        }
+                    }).placeAt(form.containerNode);
+
+                    var dialog = new Dialog({
+                        content: form,
+                        title: "Удаление поручения",
+                        style: "width: 300px; height: 160px;"
+                    });
+
+                    form.startup();
+                    dialog.show();
+                })
+        }
+    </script>
+
+</head>
+<body class="claro">
+    <div data-dojo-type="dijit/layout/BorderContainer" style="width:100%; height:100%">
+        <div id="left-panel" data-dojo-type="dijit/layout/ContentPane" data-dojo-props="region: 'left'" style="width: 400px">
+            <div id="tree-list"></div>
+        </div>
+
+        <div id="right-panel"></div>
+
+    </div>
+</body>
+</html>
